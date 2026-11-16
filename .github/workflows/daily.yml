@@ -1,0 +1,23 @@
+name: Daily video
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  make:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests edge-tts
+      - run: python generate.py
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      - run: |
+          git config user.name "bot"
+          git config user.email "bot@example.com"
+          git add output
+          git commit -m "new output" || echo "nothing"
+          git push
