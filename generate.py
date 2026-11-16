@@ -40,5 +40,4 @@ data = ask()
 os.makedirs("output", exist_ok=True)
 with open("output/video.json", "w") as f:
     json.dump(data, f, indent=2)
-
-asyncio.run(edge_tts.Communicate(data["script"], "en-US-GuyNeural").save("output/voice.mp3"))
+asyncio.run(edge_tts.Communicate(data["script"], "en-US-GuyNeural", rate="-12%").save("output/voice.mp3"))
