@@ -3,7 +3,7 @@ import edge_tts
 
 KEY = os.environ["GEMINI_API_KEY"]
 TOPIC = "The rise and fall of Nokia"
-URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"
 
 prompt = f"""You write scripts for the YouTube channel Rise & Ruin (the rise and fall of famous companies and empires). Audience: USA, UK, Canada, Australia. Topic: {TOPIC}.
 Return ONLY JSON with keys: title, description, tags (list of strings), script.
