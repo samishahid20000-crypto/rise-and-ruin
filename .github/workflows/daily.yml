@@ -11,10 +11,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install requests edge-tts
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+      - run: pip install requests edge-tts pillow
       - run: python generate.py
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rise-and-ruin-video
+          path: build/video.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rise-and-ruin-thumbnail
+          path: build/thumbnail.jpg
       - run: |
           git config user.name "bot"
           git config user.email "bot@example.com"
