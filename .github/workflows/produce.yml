@@ -1,0 +1,46 @@
+name: Produce video
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: long or short
+        default: long
+      minutes:
+        description: length in minutes (long videos only)
+        default: "10"
+      topic:
+        description: leave empty to use the next topic from topics.json
+        default: ""
+permissions:
+  contents: write
+jobs:
+  make:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+      - run: pip install requests edge-tts pillow
+      - run: python produce.py
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MODE: ${{ inputs.mode }}
+          MINUTES: ${{ inputs.minutes }}
+          TOPIC: ${{ inputs.topic }}
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ inputs.mode }}-${{ github.run_number }}" build/video.mp4 build/thumbnail.jpg build/metadata.txt --title "$(cat build/release_title.txt)" --notes-file build/release_notes.md
+      - name: Save progress
+        run: |
+          git config user.name "bot"
+          git config user.email "bot@example.com"
+          git add output
+          git commit -m "progress" || echo "nothing"
+          git push
