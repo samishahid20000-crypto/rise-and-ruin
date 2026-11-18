@@ -37,6 +37,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ inputs.mode }}-${{ github.run_number }}" build/video.mp4 build/thumbnail.jpg build/metadata.txt --title "$(cat build/release_title.txt)" --notes-file build/release_notes.md
+      - name: Upload to YouTube
+        continue-on-error: true
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          MODE: ${{ inputs.mode }}
+        run: python upload.py
       - name: Save progress
         run: |
           git config user.name "bot"
