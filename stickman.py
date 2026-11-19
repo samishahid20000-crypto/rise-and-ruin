@@ -616,3 +616,5 @@ def render_scene(scene, W=1280, H=720, path=None, style="scene"):
     if path:
         img.save(path, quality=93)
     return img
+import mannequin
+mannequin.install(globals())
