@@ -4,7 +4,7 @@ from PIL import Image
 import stickman as S
 
 MODE = (os.environ.get("MODE") or "long").strip().lower()
-MINUTES = float(os.environ.get("MINUTES") or 10)
+MINUTES = float(os.environ.get("MINUTES") or 13)
 TOPIC_ENV = (os.environ.get("TOPIC") or "").strip()
 VERTICAL = MODE == "short"
 W, H = (720, 1280) if VERTICAL else (1280, 720)
