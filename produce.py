@@ -13,7 +13,8 @@ VOICE, RATE = "en-US-GuyNeural", "-12%"
 MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3-flash-preview"]
 RULES = ("Rules: use only well-documented facts. If you are not sure about a number or date, leave it out or say 'around'. "
          "Never invent quotes. Do not accuse real people of crimes unless it was proven in court or is widely documented. "
-         "Simple spoken English, short sentences, no jargon, no stage directions.")
+         "Simple spoken English, short sentences, no jargon, no stage directions."
+                   " Title style: use direct, curiosity-driven patterns such as 'How X Destroyed Itself', 'The Fall of X', 'Why X Failed' or 'X: The Rise and Ruin'. In long videos, begin every chapter with a one-line mini-hook (a question or a high-stakes statement) before explaining, and never open any chapter with a greeting.")
 
 
 # ---------------- helpers ----------------
