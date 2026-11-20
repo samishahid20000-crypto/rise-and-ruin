@@ -14,6 +14,7 @@ BLACK_BG = {
 }
 NEUTRAL = ((0, 20), (0, 20), 0, 0, 0, "flat")
 _cache = {}
+_state = {"pose": None, "act": None}
 
 
 def _smooth(x):
@@ -93,7 +94,7 @@ def _make(g):
             _cache[key] = bg
         img.paste(_cache[key])
 
-    def draw(scene, W=1280, H=720, style="scene", t=None, dur=5.0):
+    def draw(scene, W=1280, H=720, style="scene", t=None, dur=5.0, walk=True, start=None):
         anim = t is not None and style != "thumb"
         T = t if anim else 99.0
         ss = 2 if anim else g["SS"]
@@ -121,20 +122,23 @@ def _make(g):
         target = g["POSES"].get(pose, g["POSES"]["stand"])
         fx, cur, bob = fx_t, target, 0.0
         if anim:
-            WT = 0.8
-            if T < WT:
+            WT = 1.2
+            walking = walk and T < WT
+            if walking:
                 k = T / WT
-                amp = 28 * (1 - _smooth((T - 0.55) / 0.25))
-                sw = math.sin(T * 12)
+                amp = 24 * (1 - _smooth((T - 0.85) / 0.35))
+                sw = math.sin(T * 8)
                 cur = ((amp * 0.8 * sw, amp * 0.8 * sw + 20), (-amp * 0.8 * sw, -amp * 0.8 * sw + 20),
                        -amp * sw, amp * sw, 0, "flat")
-                fx = fx_t - 0.55 * w * (1 - k) ** 1.5
-                bob = abs(math.sin(T * 12)) * 0.012 * fh
+                fx = fx_t - 0.5 * w * (1 - k) ** 1.5
+                bob = abs(math.sin(T * 8)) * 0.01 * fh
             else:
-                cur = _lerp(NEUTRAL, target, _smooth((T - WT) / 0.5))
-                sway = 2.5 * math.sin(T * 3.2)
+                t_since = T - WT if walk else T
+                begin = NEUTRAL if (walk or start is None) else start
+                cur = _lerp(begin, target, _smooth(t_since / 0.6))
+                sway = 4.0 * math.sin(T * 2.4) * _smooth(t_since / 0.8)
                 cur = ((cur[0][0] + sway, cur[0][1]), (cur[1][0] - sway, cur[1][1]), cur[2], cur[3], cur[4], cur[5])
-                bob = 0.004 * fh * (1 + math.sin(T * 4.0))
+                bob = 0.003 * fh * (1 + math.sin(T * 2.4))
         figure(d, fx, ground - bob, fh, cur)
         n = max(1, len(props))
         if vertical and not thumb:
@@ -148,7 +152,7 @@ def _make(g):
             zone_x0, zone_x1 = w * 0.44, w * 0.96
             size = min(h * 0.52, (zone_x1 - zone_x0) / n * 0.9)
         for i, p in enumerate(props):
-            sc = _back((T - 0.55 - 0.18 * i) / 0.35) if anim else 1.0
+            sc = _smooth((T - 0.45 - 0.2 * i) / 0.4) if anim else 1.0
             if sc <= 0.03:
                 continue
             if vertical and not thumb:
@@ -170,7 +174,7 @@ def _make(g):
                 size *= 0.92
             fade = min(1.0, k)
             if anim:
-                size *= 0.6 + 0.4 * _back(k)
+                size *= 0.85 + 0.15 * _smooth(k)
             base_c = g["RED"] if act in ("ruin", "crack") else g["WHITE"]
             colr = tuple(int(c * fade) for c in base_c)
             y = cap_y
@@ -178,9 +182,9 @@ def _make(g):
                 text_center(d, w / 2, y, ln, size, colr, stroke=size * 0.06, stroke_fill=(0, 0, 0))
                 y += size * 1.12
         if anim:
-            z = 1.05 + 0.06 * min(T / max(dur, 0.5), 1.0)
+            z = 1.03 + 0.03 * min(T / max(dur, 0.5), 1.0)
             sx = sy = 0.0
-            t0 = 0.55 if act == "ruin" else 0.9 if act == "crack" else None
+            t0 = None
             if t0 is not None and t0 <= T < t0 + 0.45:
                 a = 14 * (1 - (T - t0) / 0.45)
                 sx, sy = a * math.sin(T * 55), a * math.cos(T * 47)
@@ -215,6 +219,11 @@ def clip(S, sc, W, H, frames, FPS, out, png=None):
     try:
         draw = _make(S.__dict__)
         dur = frames / FPS
+        poses = S.__dict__["POSES"]
+        act_now = sc.get("act", "neutral")
+        target_pose = poses.get(sc.get("pose", "stand"), poses["stand"])
+        walk = _state["pose"] is None or _state["act"] != act_now
+        start = _state["pose"]
         p = subprocess.Popen(
             ["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS),
              "-i", "-", "-an", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", out],
@@ -224,13 +233,14 @@ def clip(S, sc, W, H, frames, FPS, out, png=None):
             tt = k / FPS
             q = round(tt * 15) / 15 if tt < 2.0 else round(tt * 6) / 6
             if q != last_q:
-                last_b = draw(sc, W, H, "scene", q, dur).tobytes()
+                last_b = draw(sc, W, H, "scene", q, dur, walk, start).tobytes()
                 last_q = q
             p.stdin.write(last_b)
         p.stdin.close()
         p.wait()
         if p.returncode != 0:
             raise RuntimeError("ffmpeg failed")
+        _state["pose"], _state["act"] = target_pose, act_now
     except Exception as e:
         print("animation fallback:", e)
         img_path = png or out + ".png"
