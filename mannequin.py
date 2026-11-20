@@ -1,4 +1,5 @@
 import math
+import subprocess
 import textwrap
 from PIL import Image, ImageDraw
 
@@ -11,9 +12,34 @@ BLACK_BG = {
     "ruin": ((0, 0, 0), (28, 4, 4)),
     "neutral": ((0, 0, 0), (10, 10, 13)),
 }
+NEUTRAL = ((0, 20), (0, 20), 0, 0, 0, "flat")
+_cache = {}
 
 
-def install(g):
+def _smooth(x):
+    x = max(0.0, min(1.0, x))
+    return x * x * (3 - 2 * x)
+
+
+def _back(x):
+    if x <= 0:
+        return 0.0
+    if x >= 1:
+        return 1.0
+    c = 1.70158
+    return 1 + (c + 1) * (x - 1) ** 3 + c * (x - 1) ** 2
+
+
+def _lerp(a, b, k):
+    f = lambda u, v: u + (v - u) * k
+    return ((f(a[0][0], b[0][0]), f(a[0][1], b[0][1])), (f(a[1][0], b[1][0]), f(a[1][1], b[1][1])),
+            f(a[2], b[2]), f(a[3], b[3]), f(a[4], b[4]), b[5])
+
+
+def _make(g):
+    if id(g) in _cache:
+        return _cache[id(g)]["draw"]
+
     def cap(d, p, q, w, c):
         for col, ww, off in ((c[0], w, 0.0), (c[1], w * 0.84, -0.06 * w), (c[2], w * 0.26, -0.22 * w)):
             a, b = (p[0] + off, p[1] + off), (q[0] + off, q[1] + off)
@@ -33,8 +59,10 @@ def install(g):
 
     def figure(d, x, base, height, pose="stand", col=None):
         c = RED_MAN if col is None else WHITE_MAN
-        poses = g["POSES"]
-        la, ra, ll, rl, hdx, _mood = poses.get(pose, poses["stand"])
+        if isinstance(pose, str):
+            poses = g["POSES"]
+            pose = poses.get(pose, poses["stand"])
+        la, ra, ll, rl, hdx, _m = pose
         f = height
         hip = (x, base - 0.44 * f * max(math.cos(math.radians(ll)), math.cos(math.radians(rl))))
         sh = (x, hip[1] - 0.29 * f)
@@ -54,43 +82,159 @@ def install(g):
 
     def background(img, act):
         top, bot = BLACK_BG.get(act, BLACK_BG["neutral"])
-        d = ImageDraw.Draw(img)
         W, H = img.size
-        for y in range(H):
-            t = y / (H - 1)
-            d.line([(0, y), (W, y)], fill=tuple(int(top[i] + (bot[i] - top[i]) * t) for i in range(3)))
+        key = (act, W, H)
+        if key not in _cache:
+            bg = Image.new("RGB", (W, H))
+            bd = ImageDraw.Draw(bg)
+            for y in range(H):
+                t = y / (H - 1)
+                bd.line([(0, y), (W, y)], fill=tuple(int(top[i] + (bot[i] - top[i]) * t) for i in range(3)))
+            _cache[key] = bg
+        img.paste(_cache[key])
 
-    def render_scene(scene, W=1280, H=720, path=None, style="scene"):
-        SS = g["SS"]
+    def draw(scene, W=1280, H=720, style="scene", t=None, dur=5.0):
+        anim = t is not None and style != "thumb"
+        T = t if anim else 99.0
+        ss = 2 if anim else g["SS"]
         act = scene.get("act", "neutral")
         pose = scene.get("pose", "stand")
         props = [p for p in (scene.get("props") or [])][:3]
         caption = str(scene.get("caption", "")).upper().strip()
-        w, h = W * SS, H * SS
+        w, h = W * ss, H * ss
         img = Image.new("RGB", (w, h))
         background(img, act)
         d = ImageDraw.Draw(img)
         vertical = H > W
         thumb = style == "thumb"
-        if act == "crack" or thumb:
+        if (act == "crack" and (not anim or T >= 0.9)) or thumb:
             g["crack_line"](d, w, h)
         ground = h * (0.80 if not thumb else 0.93)
         d.line([(0, ground), (w, ground)], fill=(225, 225, 230), width=max(2, int(h * 0.005)))
         draw_prop = g["draw_prop"]
-        if vertical:
+        if thumb:
+            fh, fx_t = h * 0.66, w * 0.20
+        elif vertical:
+            fh, fx_t = h * 0.30, w * 0.27
+        else:
+            fh, fx_t = h * 0.50, w * 0.25
+        target = g["POSES"].get(pose, g["POSES"]["stand"])
+        fx, cur, bob = fx_t, target, 0.0
+        if anim:
+            WT = 0.8
+            if T < WT:
+                k = T / WT
+                amp = 28 * (1 - _smooth((T - 0.55) / 0.25))
+                sw = math.sin(T * 12)
+                cur = ((amp * 0.8 * sw, amp * 0.8 * sw + 20), (-amp * 0.8 * sw, -amp * 0.8 * sw + 20),
+                       -amp * sw, amp * sw, 0, "flat")
+                fx = fx_t - 0.55 * w * (1 - k) ** 1.5
+                bob = abs(math.sin(T * 12)) * 0.012 * fh
+            else:
+                cur = _lerp(NEUTRAL, target, _smooth((T - WT) / 0.5))
+                sway = 2.5 * math.sin(T * 3.2)
+                cur = ((cur[0][0] + sway, cur[0][1]), (cur[1][0] - sway, cur[1][1]), cur[2], cur[3], cur[4], cur[5])
+                bob = 0.004 * fh * (1 + math.sin(T * 4.0))
+        figure(d, fx, ground - bob, fh, cur)
+        n = max(1, len(props))
+        if vertical and not thumb:
             props = props[:2]
-            fh, fx = h * 0.30, w * 0.27
             zone_x0, zone_x1 = w * 0.50, w * 0.96
-            figure(d, fx, ground, fh, pose)
             size = min((zone_x1 - zone_x0) * 0.95, h * 0.26)
-            for i, p in enumerate(props):
-                draw_prop(d, p, (zone_x0 + zone_x1) / 2, ground - i * h * 0.29, size)
-            cap_y, cap_size, cap_w = h * 0.08, w * 0.105, 16
         elif thumb:
-            figure(d, w * 0.20, ground, h * 0.66, pose)
-            n = max(1, len(props))
             zone_x0, zone_x1 = w * 0.42, w * 0.97
             size = min(h * 0.72, (zone_x1 - zone_x0) / n * 0.95)
-            for i, p in enumerate(props):
-                draw_prop(d, p, zone_x0 + (zone_x1 - zone_x0) * (i + 0.5) / n, ground, size)
-            cap_y, cap_size, cap_w = h * 0.17, h * 0
+        else:
+            zone_x0, zone_x1 = w * 0.44, w * 0.96
+            size = min(h * 0.52, (zone_x1 - zone_x0) / n * 0.9)
+        for i, p in enumerate(props):
+            sc = _back((T - 0.55 - 0.18 * i) / 0.35) if anim else 1.0
+            if sc <= 0.03:
+                continue
+            if vertical and not thumb:
+                draw_prop(d, p, (zone_x0 + zone_x1) / 2, ground - i * h * 0.29, size * sc)
+            else:
+                draw_prop(d, p, zone_x0 + (zone_x1 - zone_x0) * (i + 0.5) / n, ground, size * sc)
+        if vertical and not thumb:
+            cap_y, cap_size, cap_w = h * 0.08, w * 0.105, 16
+        elif thumb:
+            cap_y, cap_size, cap_w = h * 0.17, h * 0.2, 14
+        else:
+            cap_y, cap_size, cap_w = h * 0.12, h * 0.085, 26
+        k = (T - 0.1) / 0.3
+        if caption and k > 0:
+            font, text_center = g["font"], g["text_center"]
+            lines = textwrap.wrap(caption, cap_w)[:3]
+            size = cap_size
+            while size > cap_size * 0.55 and max(d.textlength(l, font=font(size)) for l in lines) > w * 0.94:
+                size *= 0.92
+            fade = min(1.0, k)
+            if anim:
+                size *= 0.6 + 0.4 * _back(k)
+            base_c = g["RED"] if act in ("ruin", "crack") else g["WHITE"]
+            colr = tuple(int(c * fade) for c in base_c)
+            y = cap_y
+            for ln in lines:
+                text_center(d, w / 2, y, ln, size, colr, stroke=size * 0.06, stroke_fill=(0, 0, 0))
+                y += size * 1.12
+        if anim:
+            z = 1.05 + 0.06 * min(T / max(dur, 0.5), 1.0)
+            sx = sy = 0.0
+            t0 = 0.55 if act == "ruin" else 0.9 if act == "crack" else None
+            if t0 is not None and t0 <= T < t0 + 0.45:
+                a = 14 * (1 - (T - t0) / 0.45)
+                sx, sy = a * math.sin(T * 55), a * math.cos(T * 47)
+            bw, bh = w / z, h / z
+            x0 = min(max(w / 2 - bw / 2 + sx, 0.0), w - bw)
+            y0 = min(max(h / 2 - bh / 2 + sy, 0.0), h - bh)
+            box = (x0, y0, x0 + bw, y0 + bh)
+            return img.resize((W, H), Image.LANCZOS, box=box)
+        return img.resize((W, H), Image.LANCZOS)
+
+    _cache[id(g)] = {"draw": draw, "figure": figure, "background": background}
+    return draw
+
+
+def install(g):
+    draw = _make(g)
+    c = _cache[id(g)]
+
+    def render_scene(scene, W=1280, H=720, path=None, style="scene"):
+        img = draw(scene, W, H, style)
+        if path:
+            img.save(path, quality=93)
+        return img
+
+    g["figure"] = c["figure"]
+    g["background"] = c["background"]
+    g["render_scene"] = render_scene
+
+
+def clip(S, sc, W, H, frames, FPS, out, png=None):
+    """Animated clip for one visual segment (replaces static png + zoompan)."""
+    try:
+        draw = _make(S.__dict__)
+        dur = frames / FPS
+        p = subprocess.Popen(
+            ["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS),
+             "-i", "-", "-an", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", out],
+            stdin=subprocess.PIPE)
+        last_q, last_b = None, None
+        for k in range(frames):
+            tt = k / FPS
+            q = round(tt * 15) / 15 if tt < 2.0 else round(tt * 6) / 6
+            if q != last_q:
+                last_b = draw(sc, W, H, "scene", q, dur).tobytes()
+                last_q = q
+            p.stdin.write(last_b)
+        p.stdin.close()
+        p.wait()
+        if p.returncode != 0:
+            raise RuntimeError("ffmpeg failed")
+    except Exception as e:
+        print("animation fallback:", e)
+        img_path = png or out + ".png"
+        S.render_scene(sc, W, H, path=img_path)
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", img_path, "-frames:v", str(frames),
+                        "-r", str(FPS), "-an", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", out],
+                       check=True)
