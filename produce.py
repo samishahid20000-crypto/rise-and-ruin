@@ -2,6 +2,7 @@ import os, json, math, time, asyncio, subprocess, textwrap, re
 import requests
 from PIL import Image
 import stickman as S
+import mannequin
 
 MODE = (os.environ.get("MODE") or "long").strip().lower()
 MINUTES = float(os.environ.get("MINUTES") or 13)
@@ -13,8 +14,7 @@ VOICE, RATE = "en-US-GuyNeural", "-12%"
 MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3-flash-preview"]
 RULES = ("Rules: use only well-documented facts. If you are not sure about a number or date, leave it out or say 'around'. "
          "Never invent quotes. Do not accuse real people of crimes unless it was proven in court or is widely documented. "
-         "Simple spoken English, short sentences, no jargon, no stage directions."
-                   " Title style: use direct, curiosity-driven patterns such as 'How X Destroyed Itself', 'The Fall of X', 'Why X Failed' or 'X: The Rise and Ruin'. In long videos, begin every chapter with a one-line mini-hook (a question or a high-stakes statement) before explaining, and never open any chapter with a greeting.")
+         "Simple spoken English, short sentences, no jargon, no stage directions.")
 
 
 # ---------------- helpers ----------------
@@ -87,15 +87,22 @@ def mark_used(topic):
 
 
 # ---------------- script ----------------
+TITLE_RULE = ("Title patterns to use: 'How X Destroyed Itself', 'The Fall of X', 'Why X Failed', 'X: The Rise and Ruin', "
+              "or a short question about the biggest mistake. Put the company name in every title.")
+
+
 def plan_long(topic, words):
-    n = max(8, min(24, round(words / 250)))
-    p = f"""You are the head writer of the YouTube channel Rise & Ruin: stick-figure documentaries about how companies and empires rose and collapsed. Audience: adults 20-40 in the USA, UK, Canada and Australia. Topic: the rise and ruin of {topic}.
-Plan one video of about {words} spoken words with exactly {n} chapters in this order: Hook, Context, The Rise (several chapters, act rise), The Crack (one chapter: the single decision or moment that started the collapse, act crack), The Ruin (several chapters, act ruin), The Lesson (act neutral).
+    n = max(6, min(24, round(words / 300)))
+    per = max(150, round(words / n))
+    p = f"""You are the head writer of the YouTube channel Rise & Ruin: stick-figure documentaries about how companies and empires rose and then fell.
+Topic: {topic}
+Plan one video of about {words} spoken words with exactly {n} chapters in this order: Hook, Context, The Rise (several chapters if there is room), The Cracks (the mistakes), The Ruin (the collapse), Lessons.
+Each chapter is about {per} words, so about two to three minutes of speech. Every chapter must start with a one-line mini-hook, a question or a high-stakes statement.
 Return ONLY JSON with keys:
-title_options: 3 strong YouTube titles, each under 60 characters, using the patterns contrast, mistake or question;
+title_options: 3 strong YouTube titles, each under 60 characters. {TITLE_RULE}
 description: 2 sentence summary for the description;
 tags: 12 tags;
-chapters: list of exactly {n} objects with name (short), act (rise, crack, ruin or neutral), summary (2 sentences on what happens), words (integer, all together about {words});
+chapters: list of exactly {n} objects with name (short and dramatic), act (rise, crack, ruin or neutral), summary (2 sentences on what the chapter covers);
 thumb_text: 2 to 4 words in capital letters;
 thumb_pose: one of {S.POSE_NAMES};
 thumb_props: 1 or 2 items from {S.PROP_NAMES};
@@ -107,6 +114,7 @@ verify: list of the 8 most important facts, dates or numbers a human should doub
     chs = plan.get("chapters") or []
     if len(chs) < 4:
         raise SystemExit("bad plan")
+    plan["per"] = per
     return plan
 
 
@@ -115,31 +123,36 @@ def write_chapter(topic, plan, i, prev_tail):
     ch = chs[i]
     outline = "\n".join(f"{j + 1}. {c.get('name')}: {c.get('summary')}" for j, c in enumerate(chs))
     if i == 0:
-        extra = ("This is the HOOK: open with the shocking outcome, the stakes and a promise. Add one open loop "
-                 "(the real mistake was not what people think) that gets answered later. Do not say welcome or subscribe.")
+        extra = ("This is the HOOK: open with the shocking outcome (the collapse) and the stakes, in the very first sentence. "
+                 "Then add one open loop (the real mistake was not what people think) that gets answered later. "
+                 "Do not say welcome, hello or subscribe.")
     elif i == 1:
-        extra = "Briefly say who they were. End this chapter with one natural sentence inviting viewers to subscribe because a new collapse is told every week."
+        extra = ("Start with a one-line mini-hook. Briefly say who they were. End this chapter with one natural sentence "
+                 "inviting viewers to subscribe before the story gets worse.")
     elif i == len(chs) - 1:
-        extra = "Give three lessons and what they should have done. Then ask which company viewers want next in the comments and tease the next story."
+        extra = ("Start with a one-line mini-hook. Give three lessons and what they should have done. "
+                 "Then ask which company viewers want next in the comments.")
     else:
-        extra = "End the chapter with one short re-hook sentence that makes the next chapter feel necessary."
+        extra = ("Start with a one-line mini-hook (a question or a high-stakes statement). "
+                 "End the chapter with one short re-hook sentence that makes the next chapter feel necessary.")
     p = f"""Write the spoken narration for chapter {i + 1} of {len(chs)} ("{ch.get('name')}") of a Rise & Ruin documentary about {topic}.
 Full outline:
 {outline}
 This chapter must cover: {ch.get('summary')}
-Length: about {ch.get('words', 250)} words.
+Length: about {plan.get('per', 280)} words.
 {extra}
 The previous chapter ended with: "{prev_tail}"
-Continue naturally and do not repeat earlier facts.
+Continue naturally and do not repeat earlier facts. Never open with a greeting.
 {RULES}
 Return ONLY the narration text, plain, with no title and no headings."""
     return clean(ask(p, as_json=False))
 
 
 def plan_short(topic):
-    p = f"""You write YouTube Shorts for the channel Rise & Ruin (stick-figure stories about how companies and empires rose and collapsed). Topic: the rise and ruin of {topic}.
-Write a script of about 120 spoken words (50 seconds). Line 1 is a shocking hook (outcome plus stakes). Then 4 fast beats: the rise, the single mistake, the ruin, a one-line lesson. The last line is: Follow for the next collapse.
-Return ONLY JSON with keys: title_options (3 titles under 60 characters), description (2 lines ending with #Shorts), tags (10 tags), script, verify (list of the 5 key facts or numbers to double check).
+    p = f"""You write YouTube Shorts for the channel Rise & Ruin (stick-figure stories about how companies and empires rose and fell).
+Topic: {topic}
+Write a script of about 120 spoken words (50 seconds). Line 1 is a shocking hook (the outcome plus the stakes). Then 4 fast beats: the rise, the crack, the mistake, the ruin. End with one line that makes people follow for the next story.
+Return ONLY JSON with keys: title_options (3 titles under 60 characters; {TITLE_RULE}), description (2 lines ending with #Shorts), tags (12 tags), script (the full narration, plain text), thumb_text (2 to 4 capital words), thumb_pose (one of {S.POSE_NAMES}), thumb_props (1 or 2 items from {S.PROP_NAMES}), verify (list of the key facts and numbers to double check).
 {RULES}"""
     plan = ask(p)
     if isinstance(plan, list) and plan:
@@ -174,7 +187,7 @@ def make_voice(i, text):
                 break
         except Exception as e:
             print("tts error", e)
-            time.sleep(5)
+        time.sleep(5)
     else:
         raise SystemExit("voice failed")
     run(["ffmpeg", "-y", "-i", mp3, "-ar", "24000", "-ac", "1", wav])
@@ -207,7 +220,7 @@ def build_segments(marks, words, total):
 
 # ---------------- scenes ----------------
 def fallback_scene(text, act):
-    words = [w for w in re.findall(r"[A-Za-z0-9$%']+", text)]
+    words = [w for w in re.findall(r"[A-Za-z0-9%']+", text)]
     cap = " ".join(words[:4])
     return {"act": act, "pose": "stand", "props": ["label:" + (words[-1] if words else "?")], "caption": cap}
 
@@ -232,11 +245,11 @@ def get_scenes(items):
     for s in range(0, len(items), 25):
         part = items[s:s + 25]
         listing = "\n".join(f"{i + 1}. [{act}] {text}" for i, (text, act) in enumerate(part))
-        p = f"""You design stick-figure scenes for a documentary. For each numbered narration line decide what the viewer SEES while it is spoken. The scene must show the main thing the line talks about.
+        p = f"""You design stick-figure scenes for a documentary. For each numbered narration line decide what the viewer should see.
 Return ONLY a JSON list of exactly {len(part)} objects with keys:
 act: rise, crack, ruin or neutral (use the hint in brackets unless the line clearly says otherwise);
-pose: one of {S.POSE_NAMES} (the stick man's mood: cheer for success, sad or panic for failure, think or shrug for doubt, point for explaining, run for hurry);
-props: 1 to {2 if VERTICAL else 3} items. Use names from {S.PROP_NAMES}. If the line is about something not in the list, use "label:" plus one or two words (for example "label:IPHONE" or "label:LAYOFFS"). Phone lines show phone or smartphone, towers show tower, money shows money or coins, falling shows chart_down or arrow_down, growth shows chart_up or arrow_up, people show crowd, secrets or deals show contract or lock;
+pose: one of {S.POSE_NAMES} (the stick man's mood: cheer for success, sad or panic for failure, think or shrug for doubt);
+props: 1 to {2 if VERTICAL else 3} items. Use names from {S.PROP_NAMES}, or "label:Name" for something that is not in the list (for example "label:Nokia");
 caption: the punchy key phrase of the line in 2 to 4 words, include a number if the line has one.
 Do not repeat the same props and pose in two lines in a row.
 
@@ -248,18 +261,6 @@ Do not repeat the same props and pose in two lines in a row.
             sc = res[i] if i < len(res) else None
             out.append(sanitize(sc, text, act))
     return out
-
-
-def motion(i, frames):
-    tail = f"d={frames}:s={W}x{H}:fps={FPS}"
-    m = i % 3
-    if m == 0:
-        z = f"zoompan=z='min(zoom+0.0006,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':{tail}"
-    elif m == 1:
-        z = f"zoompan=z='max(1.12-0.0006*on,1.0)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':{tail}"
-    else:
-        z = f"zoompan=z=1.1:x='(iw-iw/zoom)*on/{frames}':y='ih/2-(ih/zoom/2)':{tail}"
-    return z
 
 
 # ---------------- main ----------------
@@ -309,7 +310,7 @@ def main():
 
     scenes = get_scenes([(t, act) for _, _, t, act in segs])
 
-    # visuals
+    # visuals (animated mannequin clips)
     S.SS = 1
     clips, prev_frames = [], 0
     for i, ((a, b, text, act), sc) in enumerate(zip(segs, scenes)):
@@ -318,10 +319,7 @@ def main():
         prev_frames = end_frames
         png = f"build/clips/s{i:03d}.png"
         out = f"build/clips/c{i:03d}.mp4"
-        S.render_scene(sc, W * 2, H * 2, path=png)
-        run(["ffmpeg", "-y", "-i", png, "-vf", motion(i, frames) + ",format=yuv420p", "-frames:v", str(frames),
-             "-an", "-c:v", "libx264", "-preset", "veryfast", out])
-        os.remove(png)
+        mannequin.clip(S, sc, W, H, frames, FPS, out, png)
         clips.append(out)
         if i % 10 == 0:
             print("visual", i, "/", len(segs), sc["caption"])
