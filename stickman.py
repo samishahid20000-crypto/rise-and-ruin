@@ -617,4 +617,5 @@ def render_scene(scene, W=1280, H=720, path=None, style="scene"):
         img.save(path, quality=93)
     return img
 import mannequin
-mannequin.install(globals())
+if hasattr(mannequin, "install"):
+    mannequin.install(globals())
