@@ -11,7 +11,7 @@ VERTICAL = MODE == "short"
 W, H = (720, 1280) if VERTICAL else (1280, 720)
 FPS, SEG, WPM = 30, 4.9, 140
 VOICE, RATE = "en-US-GuyNeural", "-12%"
-MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3-flash-preview"]
+MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
 RULES = ("Rules: use only well-documented facts. If you are not sure about a number or date, leave it out or say 'around'. "
          "Never invent quotes. Do not accuse real people of crimes unless it was proven in court or is widely documented. "
          "Simple spoken English, short sentences, no jargon, no stage directions. "
@@ -20,7 +20,7 @@ RULES = ("Rules: use only well-documented facts. If you are not sure about a num
 
 # ---------------- helpers ----------------
 def ask(prompt, as_json=True):
-    for attempt in range(4):
+    for attempt in range(8):
         for m in MODELS:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
             body = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -40,7 +40,7 @@ def ask(prompt, as_json=True):
                     print(m, "bad reply", e)
                     continue
             print(m, r.status_code, r.text[:200])
-        time.sleep(20)
+        time.sleep(60)
     raise SystemExit("All models failed")
 
 
