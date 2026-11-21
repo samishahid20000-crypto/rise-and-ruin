@@ -8,7 +8,7 @@ if not (CID and SEC and RT):
     sys.exit(0)
 
 B = "build"
-PRIVACY = os.environ.get("PRIVACY", "public")
+PRIVACY = os.environ.get("PRIVACY", "private")
 
 
 def token():
