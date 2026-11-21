@@ -5,7 +5,7 @@ import stickman as S
 import mannequin
 
 MODE = (os.environ.get("MODE") or "long").strip().lower()
-MINUTES = float(os.environ.get("MINUTES") or 13)
+MINUTES = float(os.environ.get("MINUTES") or 11)
 TOPIC_ENV = (os.environ.get("TOPIC") or "").strip()
 VERTICAL = MODE == "short"
 W, H = (720, 1280) if VERTICAL else (1280, 720)
@@ -14,7 +14,8 @@ VOICE, RATE = "en-US-GuyNeural", "-12%"
 MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3-flash-preview"]
 RULES = ("Rules: use only well-documented facts. If you are not sure about a number or date, leave it out or say 'around'. "
          "Never invent quotes. Do not accuse real people of crimes unless it was proven in court or is widely documented. "
-         "Simple spoken English, short sentences, no jargon, no stage directions.")
+         "Simple spoken English, short sentences, no jargon, no stage directions. "
+         "Tell it like a thriller: build tension, name the specific wrong decision and the clear turning point, keep the stakes high.")
 
 
 # ---------------- helpers ----------------
@@ -219,10 +220,16 @@ def build_segments(marks, words, total):
 
 
 # ---------------- scenes ----------------
+SCENES = ["stairs_up", "stairs_down", "bars_up", "bars_down", "versus", "ladder", "push", "crown_crack", "line_graph", "generic"]
+FALLBACK = {"rise": ["stairs_up", "bars_up", "ladder", "push"], "crack": ["line_graph", "versus", "bars_down"],
+            "ruin": ["stairs_down", "bars_down", "crown_crack"], "neutral": ["generic", "versus", "line_graph"]}
+
+
 def fallback_scene(text, act):
     words = [w for w in re.findall(r"[A-Za-z0-9%']+", text)]
     cap = " ".join(words[:4])
-    return {"act": act, "pose": "stand", "props": ["label:" + (words[-1] if words else "?")], "caption": cap}
+    return {"act": act, "pose": "stand", "props": ["label:" + (words[-1] if words else "?")], "caption": cap,
+            "scene": "generic", "labels": [cap]}
 
 
 def sanitize(sc, text, act):
@@ -237,6 +244,16 @@ def sanitize(sc, text, act):
     props = [re.sub(r"\s+", " ", str(p)).strip()[:30] for p in props if str(p).strip()]
     out["props"] = props[:2 if VERTICAL else 3] or ["label:" + clean(text).split(" ")[0]]
     out["caption"] = clean(sc.get("caption", ""))[:40] or " ".join(clean(text).split(" ")[:4])
+    kind = sc.get("scene") if sc.get("scene") in SCENES else None
+    if not kind:
+        opts = FALLBACK.get(out["act"], FALLBACK["neutral"])
+        kind = opts[sum(map(ord, text)) % len(opts)]
+    out["scene"] = kind
+    labs = sc.get("labels") or []
+    if isinstance(labs, str):
+        labs = [labs]
+    labs = [clean(x)[:22] for x in labs if str(x).strip()][:3]
+    out["labels"] = labs or [out["caption"]]
     return out
 
 
@@ -250,8 +267,10 @@ Return ONLY a JSON list of exactly {len(part)} objects with keys:
 act: rise, crack, ruin or neutral (use the hint in brackets unless the line clearly says otherwise);
 pose: one of {S.POSE_NAMES} (the stick man's mood: cheer for success, sad or panic for failure, think or shrug for doubt);
 props: 1 to {2 if VERTICAL else 3} items. Use names from {S.PROP_NAMES}, or "label:Name" for something that is not in the list (for example "label:Nokia");
-caption: the punchy key phrase of the line in 2 to 4 words, include a number if the line has one.
-Do not repeat the same props and pose in two lines in a row.
+caption: the punchy key phrase of the line in 2 to 4 words, include a number if the line has one;
+scene: the visual metaphor, one of stairs_up (success or growth), stairs_down (collapse or fall), bars_up (growth of a number), bars_down (a number falling), versus (two approaches compared), ladder (step by step progress), push (something growing bigger over time), crown_crack (an empire cracking), line_graph (a rise then a crash), generic (anything else);
+labels: 1 to 3 very short texts (max 3 words each) shown on screen for that scene. Examples: ["Nokia 2007", "#1 phone maker"], ["Market share", "40%"], ["Today", "In a month", "In a year"].
+Choose the scene that matches the meaning of the line. Do not use the same scene in two lines in a row. Do not repeat the same props and pose in two lines in a row.
 
 {listing}"""
         res = ask(p)
@@ -260,6 +279,11 @@ Do not repeat the same props and pose in two lines in a row.
         for i, (text, act) in enumerate(part):
             sc = res[i] if i < len(res) else None
             out.append(sanitize(sc, text, act))
+    for i in range(1, len(out)):
+        if out[i]["scene"] == out[i - 1]["scene"] and out[i]["scene"] != "generic":
+            opts = [k for k in FALLBACK.get(out[i]["act"], FALLBACK["neutral"]) if k != out[i - 1]["scene"]]
+            if opts:
+                out[i]["scene"] = opts[i % len(opts)]
     return out
 
 
