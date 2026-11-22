@@ -262,20 +262,20 @@ def block(d, x0, y0, x1, y1, col):
 PROP_KEYS = [
     ("phone", r"\b(phones?|mobiles?|smartphones?|nokia|iphone|android|handsets?|ringtones?|calls?|texting|sms)\b"),
     ("tech", r"\b(technolog\w*|tech|software|internet|computers?|digital|online|chips?|processors?|app|apps|ai|"
-             r"platforms?|operating system|network|web|silicon)\b"),
+             r"platforms?|operating system|network|web|silicon|tower|laptop)\b"),
     ("building", r"\b(buildings?|compan(?:y|ies)|offices?|headquarters?|hq|corporations?|firms?|empire|"
-                r"stores?|shops?|brand|giant|enterprise|business)\b"),
+                r"stores?|shops?|bank|banks|brand|giant|enterprise|business)\b"),
     ("gear", r"\b(factor(?:y|ies)|production|manufactur\w*|engineer\w*|machines?|assembly|plants?)\b"),
     ("bulb", r"\b(ideas?|innovat\w*|invent\w*|creative|breakthrough|patent\w*|discover\w*)\b"),
     ("coin", r"\b(profits?|revenues?|money|dollars?|cash|sales|earn\w*|billions?|millions?|rich|wealth\w*|"
-            r"invest\w*|valuation|price|funding|salary|income|shares?|stocks?)\b"),
-    ("chart_up", r"\b(growth|grew|growing|boom|soar\w*|skyrocket\w*|surge\w*|record|market share|expand\w*|"
+            r"invest\w*|valuation|price|funding|salary|income|shares?|stocks?|coins?)\b"),
+    ("chart_up", r"chart_up|arrow_up|\b(growth|grew|growing|boom|soar\w*|skyrocket\w*|surge\w*|record|market share|expand\w*|"
                 r"rose|rising|climb\w*|peak)\b"),
-    ("chart_down", r"\b(decline\w*|declin\w*|fell|falling|drop\w*|plunge\w*|collaps\w*|crash\w*|slump\w*|"
+    ("chart_down", r"chart_down|arrow_down|\b(decline\w*|declin\w*|fell|falling|drop\w*|plunge\w*|collaps\w*|crash\w*|slump\w*|"
                    r"downfall|lost|losing|losses|loss|debt|bankrupt\w*|deficit)\b"),
     ("trophy", r"\b(win|won|winner|leader|leading|number one|dominat\w*|champion\w*|success\w*|victory|"
                r"top|best)\b"),
-    ("cross", r"\b(fail\w*|fired|layoffs?|lawsuit\w*|banned|shut ?down|closed|scandal\w*|mistakes?|"
+    ("cross", r"xmark|\b(fail\w*|fired|layoffs?|lawsuit\w*|banned|shut ?down|closed|scandal\w*|mistakes?|"
               r"disaster|bust)\b"),
 ]
 GOOD = r"\b(profits?|growth|grew|boom|soar\w*|skyrocket\w*|surge\w*|record|success\w*|won|win|victory|leader|" \
@@ -341,7 +341,7 @@ def detect(sc, act):
             out = ["chart_up"]
         elif mood in ("sad", "panic"):
             out = ["chart_down"]
-    return out[:2], mood
+    return out[:2], mood, bool(kinds)
 
 
 # ------------------------------------------------------------ prop drawers (thin clean line art, flat accents)
@@ -492,7 +492,4 @@ def p_chart(d, x, base, s, t, down, up):
         d.ellipse((ex - lw * 2, ey - lw * 2, ex + lw * 2, ey + lw * 2), fill=(255, 255, 255))
 
 
-def p_gear(d, x, base, s, t, down):
-    lw = _lw(s)
-    cy = base - s * 0.42
-    R, r = s * 0.36, s * 0.2
+def p_gear(d, x
