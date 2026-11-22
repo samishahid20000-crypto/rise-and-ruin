@@ -9,8 +9,9 @@ MINUTES = float(os.environ.get("MINUTES") or 11)
 TOPIC_ENV = (os.environ.get("TOPIC") or "").strip()
 VERTICAL = MODE == "short"
 W, H = (720, 1280) if VERTICAL else (1280, 720)
-FPS, SEG, WPM = 30, 4.9, 140
-VOICE, RATE = "en-US-GuyNeural", "-12%"
+# SEG = longest time one picture stays on screen (seconds), WPM = words per minute at normal voice speed
+FPS, SEG, WPM = 30, 3.8, 165
+VOICE, RATE = "en-US-GuyNeural", "+0%"
 MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
 RULES = ("Rules: use only well-documented facts. If you are not sure about a number or date, leave it out or say 'around'. "
          "Never invent quotes. Do not accuse real people of crimes unless it was proven in court or is widely documented. "
@@ -152,7 +153,7 @@ Return ONLY the narration text, plain, with no title and no headings."""
 def plan_short(topic):
     p = f"""You write YouTube Shorts for the channel Rise & Ruin (stick-figure stories about how companies and empires rose and fell).
 Topic: {topic}
-Write a script of about 120 spoken words (50 seconds). Line 1 is a shocking hook (the outcome plus the stakes). Then 4 fast beats: the rise, the crack, the mistake, the ruin. End with one line that makes people follow for the next story.
+Write a script of about 140 spoken words (50 seconds). Line 1 is a shocking hook (the outcome plus the stakes). Then 4 fast beats: the rise, the crack, the mistake, the ruin. End with one line that makes people follow for the next story.
 Return ONLY JSON with keys: title_options (3 titles under 60 characters; {TITLE_RULE}), description (2 lines ending with #Shorts), tags (12 tags), script (the full narration, plain text), thumb_text (2 to 4 capital words), thumb_pose (one of {S.POSE_NAMES}), thumb_props (1 or 2 items from {S.PROP_NAMES}), verify (list of the key facts and numbers to double check).
 {RULES}"""
     plan = ask(p)
@@ -229,7 +230,7 @@ def fallback_scene(text, act):
     words = [w for w in re.findall(r"[A-Za-z0-9%']+", text)]
     cap = " ".join(words[:4])
     return {"act": act, "pose": "stand", "props": ["label:" + (words[-1] if words else "?")], "caption": cap,
-            "scene": "generic", "labels": [cap]}
+            "scene": "generic", "labels": [cap], "narration": clean(text)}
 
 
 def sanitize(sc, text, act):
@@ -249,6 +250,8 @@ def sanitize(sc, text, act):
         opts = FALLBACK.get(out["act"], FALLBACK["neutral"])
         kind = opts[sum(map(ord, text)) % len(opts)]
     out["scene"] = kind
+    # the spoken words of this scene: the mannequin engine reads them to pick the matching picture
+    out["narration"] = clean(text)
     labs = sc.get("labels") or []
     if isinstance(labs, str):
         labs = [labs]
@@ -263,12 +266,13 @@ def get_scenes(items):
         part = items[s:s + 25]
         listing = "\n".join(f"{i + 1}. [{act}] {text}" for i, (text, act) in enumerate(part))
         p = f"""You design stick-figure scenes for a documentary. For each numbered narration line decide what the viewer should see.
+The picture must match the words of the line: a company or office means a building, a mobile means a phone, technology means a chip or laptop, profit or money means coins, growth means an up chart, loss or crash means a red down chart and a worried stick man.
 Return ONLY a JSON list of exactly {len(part)} objects with keys:
 act: rise, crack, ruin or neutral (use the hint in brackets unless the line clearly says otherwise);
 pose: one of {S.POSE_NAMES} (the stick man's mood: cheer for success, sad or panic for failure, think or shrug for doubt);
 props: 1 to {2 if VERTICAL else 3} items. Use names from {S.PROP_NAMES}, or "label:Name" for something that is not in the list (for example "label:Nokia");
 caption: the punchy key phrase of the line in 2 to 4 words, include a number if the line has one;
-scene: the visual metaphor, one of stairs_up (success or growth), stairs_down (collapse or fall), bars_up (growth of a number), bars_down (a number falling), versus (two approaches compared), ladder (step by step progress), push (something growing bigger over time), crown_crack (an empire cracking), line_graph (a rise then a crash), generic (anything else);
+scene: the visual metaphor, one of stairs_up (success or growth), stairs_down (collapse or fall), bars_up (growth of a number), bars_down (a number falling), versus (two approaches compared), ladder (step by step progress), push (something growing bigger over time), crown_crack (an empire cracking), line_graph (a rise then a crash), generic (anything else, and always when the line names a real thing like a company, phone, money or technology);
 labels: 1 to 3 very short texts (max 3 words each) shown on screen for that scene. Examples: ["Nokia 2007", "#1 phone maker"], ["Market share", "40%"], ["Today", "In a month", "In a year"].
 Choose the scene that matches the meaning of the line. Do not use the same scene in two lines in a row. Do not repeat the same props and pose in two lines in a row.
 
@@ -385,3 +389,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+                 
