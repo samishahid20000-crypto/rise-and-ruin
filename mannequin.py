@@ -2,6 +2,7 @@ import math, re, subprocess
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from mfigure import *
 from mprops import detect, draw_prop, tension
+from mprops2 import draw_extra, EXTRA
 
 
 
@@ -31,6 +32,18 @@ def block(d, x0, y0, x1, y1, col):
 
 
 # ------------------------------------------------------------ build + render
+YEL = (255, 214, 10)
+BASE_VIS = ("building", "phone", "tech", "coin", "chart_up", "chart_down", "gear", "bulb", "trophy", "cross")
+
+
+def key_color(word, act, last):
+    if any(ch.isdigit() for ch in word) or "$" in word or "%" in word:
+        return YEL
+    if last:
+        return RED if act in ("crack", "ruin") else YEL
+    return (255, 255, 255)
+
+
 def build(sc, W, H):
     act = sc.get("act") if sc.get("act") in ACT else "neutral"
     vertical = H > W
@@ -43,9 +56,18 @@ def build(sc, W, H):
     size = int(H * 0.06) if not vertical else int(W * 0.085)
     fnt = font(size)
     lines = wrap(d, cap, fnt, W * 0.9)
+    texts = []
     y = H * (0.09 if not vertical else 0.08)
+    k = 0
+    nwords = max(1, len(cap.split()))
     for ln in lines:
-        text_c(d, (W / 2, y), ln, size)
+        ws = ln.split()
+        total = d.textlength(ln, font=fnt)
+        x = W / 2 - total / 2
+        for w_ in ws:
+            texts.append((w_, x, y, size, key_color(w_, act, k == nwords - 1), 0.1 + 0.28 * k))
+            x += d.textlength(w_ + " ", font=fnt)
+            k += 1
         y += size * 1.2
     labs = [str(x) for x in (sc.get("labels") or []) if str(x).strip()][:3]
     if sc.get("scene") == "versus":
@@ -56,8 +78,9 @@ def build(sc, W, H):
     if labs:
         n = len(labs)
         for i, t_ in enumerate(labs):
-            col = RED if i == n - 1 else (255, 255, 255)
-            text_c(d, (W * (i + 1) / (n + 1), y + lsize * 0.6), t_, lsize, col)
+            col = key_color(t_, act, i == n - 1) if i == n - 1 or any(ch.isdigit() for ch in t_) else (255, 255, 255)
+            texts.append((t_, W * (i + 1) / (n + 1) - d.textlength(t_, font=font(lsize)) / 2, y + lsize * 0.6, lsize, col,
+                          0.45 + 0.4 * i))
         y += lsize * 1.8
     region_top = y + H * 0.05
     if vertical:
@@ -67,14 +90,17 @@ def build(sc, W, H):
         region = (W * 0.45, region_top, W * 0.95, floor_y)
         cx, fx_in = W * 0.24, -W * 0.05
     props, mood, explicit = detect(sc, act)
-    if explicit and sc.get("narration"):
-        # the spoken words name a real thing (phone, building, profit...): show that thing
-        sc = dict(sc)
+    vis = [v for v in (sc.get("visuals") or []) if v in EXTRA or v in BASE_VIS][:2]
+    sc = dict(sc)
+    if vis:
+        props = vis
+    if (explicit and sc.get("narration")) or vis:
         sc["scene"] = "generic"
-    hero = RED if act in ("rise", "ruin") else WHITE
+    if sc.get("visuals") and sc["visuals"][0] == "versus":
+        sc["scene"] = "versus"
     return dict(sc=sc, W=W, H=H, bg=bg, act=act, fh=fh, floor_y=floor_y, region=region,
-                cx=cx, fx_in=fx_in, vertical=vertical, hero=hero, mode=pose_mode(sc.get("pose")),
-                props=props, mood=mood, region_top=region_top)
+                cx=cx, fx_in=fx_in, vertical=vertical, hero=RED, mode=pose_mode(sc.get("pose")),
+                props=props, mood=mood, region_top=region_top, texts=texts)
 
 
 def ground_at_steps(x, xs, sw, n, floor_y, sh, down):
@@ -239,14 +265,19 @@ def render(c, t, dur):
             local = max(0.0, t - idx * seg)
             pop = ease((local - 0.05) / 0.3)
             if pop > 0.02:
-                draw_prop(d, props[idx], (px0 + px1) / 2, fy, size * pop, local, down)
+                if not draw_extra(d, props[idx], (px0 + px1) / 2, fy, size * pop, local, down):
+                    draw_prop(d, props[idx], (px0 + px1) / 2, fy, size * pop, local, down)
         fx = c["fx_in"] + (gx - c["fx_in"]) * ease(t / walk_in)
         fmode = "walk" if t < walk_in else (mood_pose or "point")
 
     hx, hy, hr = figure(img, fx, gy, fh, angles(fmode, t), hero)
+    d = ImageDraw.Draw(img)
     if fmode in ("sad", "panic") and t >= walk_in * 0.5:
-        d = ImageDraw.Draw(img)
         tension(d, hx, hy, hr, t, fh, fmode == "panic")
+    for txt, x, y, size, col, t0 in c["texts"]:
+        if t >= t0:
+            k = ease((t - t0) / 0.15)
+            d.text((x, y), txt, font=font(size), fill=lerp((0, 0, 0), col, k), anchor="lm")
     return img
 
 
@@ -272,4 +303,4 @@ def clip(S, sc, W, H, frames, FPS, out, png):
     if proc.returncode != 0:
         print(err[-800:])
         raise SystemExit("clip failed")
-    
+          
