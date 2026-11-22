@@ -1,0 +1,54 @@
+name: Auto produce and schedule
+on:
+  schedule:
+    - cron: "0 6 * * 1,4"
+    - cron: "0 8 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: long or short
+        default: short
+permissions:
+  contents: write
+concurrency:
+  group: rise-and-ruin-auto
+  cancel-in-progress: false
+jobs:
+  make:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || (github.event.schedule == '0 6 * * 1,4' && 'long' || 'short') }}
+      MINUTES: "12.5"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+      - run: pip install requests edge-tts pillow
+      - run: python produce.py
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "auto-${{ github.run_id }}" build/video.mp4 build/thumbnail.jpg build/metadata.txt --title "$(cat build/release_title.txt)" --notes-file build/release_notes.md
+      - name: Upload to YouTube (scheduled)
+        continue-on-error: true
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+        run: python upload.py
+      - name: Save progress
+        run: |
+          git config user.name "bot"
+          git config user.email "bot@example.com"
+          git add output
+          git commit -m "progress" || echo "nothing"
+          git pull --rebase || true
+          git push
