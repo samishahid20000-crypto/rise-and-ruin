@@ -7,7 +7,7 @@ on:
         default: long
       minutes:
         description: length in minutes (long videos only)
-        default: "12"
+        default: "12.5"
       topic:
         description: leave empty to use the next topic from topics.json
         default: ""
@@ -37,7 +37,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ inputs.mode }}-${{ github.run_number }}" build/video.mp4 build/thumbnail.jpg build/metadata.txt --title "$(cat build/release_title.txt)" --notes-file build/release_notes.md
-      - name: Upload to YouTube
+      - name: Upload to YouTube (scheduled)
         continue-on-error: true
         env:
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
@@ -51,4 +51,5 @@ jobs:
           git config user.email "bot@example.com"
           git add output
           git commit -m "progress" || echo "nothing"
+          git pull --rebase || true
           git push
