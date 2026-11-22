@@ -126,6 +126,7 @@ def render(c, t, dur):
     mode = c["mode"]
     walk_in = min(1.1, dur * 0.3)
     fx, gy = cx, fy
+    blend_k = None
     fmode = mode or "idle"
     props, mood = c["props"], c["mood"]
     # the scene's own story pose wins, else the mood of the narration
@@ -267,10 +268,16 @@ def render(c, t, dur):
             if pop > 0.02:
                 if not draw_extra(d, props[idx], (px0 + px1) / 2, fy, size * pop, local, down):
                     draw_prop(d, props[idx], (px0 + px1) / 2, fy, size * pop, local, down)
-        fx = c["fx_in"] + (gx - c["fx_in"]) * ease(t / walk_in)
-        fmode = "walk" if t < walk_in else (mood_pose or "point")
+        # the mannequin stays on screen (no walking in); it only moves with the voice
+        fx = gx
+        fmode = mood_pose or "idle"
+        blend_k = ease(t / 0.35)
 
-    hx, hy, hr = figure(img, fx, gy, fh, angles(fmode, t), hero)
+    a = angles(fmode, t)
+    if blend_k is not None:
+        a0 = angles("idle", t)
+        a = {k_: a0[k_] + (a[k_] - a0[k_]) * blend_k for k_ in a}
+    hx, hy, hr = figure(img, fx, gy, fh, a, hero)
     d = ImageDraw.Draw(img)
     if fmode in ("sad", "panic") and t >= walk_in * 0.5:
         tension(d, hx, hy, hr, t, fh, fmode == "panic")
@@ -303,4 +310,4 @@ def clip(S, sc, W, H, frames, FPS, out, png):
     if proc.returncode != 0:
         print(err[-800:])
         raise SystemExit("clip failed")
-          
+    
