@@ -71,15 +71,31 @@ def stamp(sec):
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
+def fresh_topic(used):
+    """topics.json is finished: ask Gemini for a new company story that was never used"""
+    names = sorted({u.split(":", 1)[-1] for u in used})
+    p = f"""You choose topics for the YouTube channel Rise & Ruin (stick-figure stories about how famous companies rose and then collapsed).
+Pick ONE company or brand with a well-documented rise and fall that US viewers know, with a dramatic turning point and a clear wrong decision.
+Do not pick any of these (already used): {', '.join(names) or 'none'}.
+Prefer stories that are in the news or that people still search for. Return ONLY JSON: {{"topic": "Company name"}}"""
+    res = ask(p)
+    if isinstance(res, list) and res:
+        res = res[0]
+    topic = clean((res or {}).get("topic", "")) if isinstance(res, dict) else ""
+    if not topic or topic in names:
+        raise SystemExit("could not find a new topic")
+    return topic
+
+
 def pick_topic():
     if TOPIC_ENV:
         return TOPIC_ENV
-    topics = json.load(open("topics.json"))
+    topics = json.load(open("topics.json")) if os.path.exists("topics.json") else []
     used = json.load(open("output/used.json")) if os.path.exists("output/used.json") else []
     for t in topics:
         if f"{MODE}:{t}" not in used:
             return t
-    raise SystemExit("all topics are used")
+    return fresh_topic(used)
 
 
 def mark_used(topic):
@@ -340,4 +356,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-             
