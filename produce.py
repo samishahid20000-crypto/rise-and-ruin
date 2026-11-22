@@ -3,9 +3,10 @@ import requests
 from PIL import Image
 import stickman as S
 import mannequin
+import mdirector
 
 MODE = (os.environ.get("MODE") or "long").strip().lower()
-MINUTES = float(os.environ.get("MINUTES") or 11)
+MINUTES = float(os.environ.get("MINUTES") or 12.5)
 TOPIC_ENV = (os.environ.get("TOPIC") or "").strip()
 VERTICAL = MODE == "short"
 W, H = (720, 1280) if VERTICAL else (1280, 720)
@@ -220,75 +221,19 @@ def build_segments(marks, words, total):
     return final
 
 
-# ---------------- scenes ----------------
-SCENES = ["stairs_up", "stairs_down", "bars_up", "bars_down", "versus", "ladder", "push", "crown_crack", "line_graph", "generic"]
-FALLBACK = {"rise": ["stairs_up", "bars_up", "ladder", "push"], "crack": ["line_graph", "versus", "bars_down"],
-            "ruin": ["stairs_down", "bars_down", "crown_crack"], "neutral": ["generic", "versus", "line_graph"]}
-
-
-def fallback_scene(text, act):
-    words = [w for w in re.findall(r"[A-Za-z0-9%']+", text)]
-    cap = " ".join(words[:4])
-    return {"act": act, "pose": "stand", "props": ["label:" + (words[-1] if words else "?")], "caption": cap,
-            "scene": "generic", "labels": [cap], "narration": clean(text)}
-
-
-def sanitize(sc, text, act):
-    if not isinstance(sc, dict):
-        return fallback_scene(text, act)
-    out = {}
-    out["act"] = sc.get("act") if sc.get("act") in S.BG else act
-    out["pose"] = sc.get("pose") if sc.get("pose") in S.POSE_NAMES else "stand"
-    props = sc.get("props") or []
-    if isinstance(props, str):
-        props = [props]
-    props = [re.sub(r"\s+", " ", str(p)).strip()[:30] for p in props if str(p).strip()]
-    out["props"] = props[:2 if VERTICAL else 3] or ["label:" + clean(text).split(" ")[0]]
-    out["caption"] = clean(sc.get("caption", ""))[:40] or " ".join(clean(text).split(" ")[:4])
-    kind = sc.get("scene") if sc.get("scene") in SCENES else None
-    if not kind:
-        opts = FALLBACK.get(out["act"], FALLBACK["neutral"])
-        kind = opts[sum(map(ord, text)) % len(opts)]
-    out["scene"] = kind
-    # the spoken words of this scene: the mannequin engine reads them to pick the matching picture
-    out["narration"] = clean(text)
-    labs = sc.get("labels") or []
-    if isinstance(labs, str):
-        labs = [labs]
-    labs = [clean(x)[:22] for x in labs if str(x).strip()][:3]
-    out["labels"] = labs or [out["caption"]]
-    return out
-
-
-def get_scenes(items):
-    out = []
-    for s in range(0, len(items), 25):
-        part = items[s:s + 25]
-        listing = "\n".join(f"{i + 1}. [{act}] {text}" for i, (text, act) in enumerate(part))
-        p = f"""You design stick-figure scenes for a documentary. For each numbered narration line decide what the viewer should see.
-The picture must match the words of the line: a company or office means a building, a mobile means a phone, technology means a chip or laptop, profit or money means coins, growth means an up chart, loss or crash means a red down chart and a worried stick man.
-Return ONLY a JSON list of exactly {len(part)} objects with keys:
-act: rise, crack, ruin or neutral (use the hint in brackets unless the line clearly says otherwise);
-pose: one of {S.POSE_NAMES} (the stick man's mood: cheer for success, sad or panic for failure, think or shrug for doubt);
-props: 1 to {2 if VERTICAL else 3} items. Use names from {S.PROP_NAMES}, or "label:Name" for something that is not in the list (for example "label:Nokia");
-caption: the punchy key phrase of the line in 2 to 4 words, include a number if the line has one;
-scene: the visual metaphor, one of stairs_up (success or growth), stairs_down (collapse or fall), bars_up (growth of a number), bars_down (a number falling), versus (two approaches compared), ladder (step by step progress), push (something growing bigger over time), crown_crack (an empire cracking), line_graph (a rise then a crash), generic (anything else, and always when the line names a real thing like a company, phone, money or technology);
-labels: 1 to 3 very short texts (max 3 words each) shown on screen for that scene. Examples: ["Nokia 2007", "#1 phone maker"], ["Market share", "40%"], ["Today", "In a month", "In a year"].
-Choose the scene that matches the meaning of the line. Do not use the same scene in two lines in a row. Do not repeat the same props and pose in two lines in a row.
-
-{listing}"""
-        res = ask(p)
-        if not isinstance(res, list):
-            res = []
-        for i, (text, act) in enumerate(part):
-            sc = res[i] if i < len(res) else None
-            out.append(sanitize(sc, text, act))
-    for i in range(1, len(out)):
-        if out[i]["scene"] == out[i - 1]["scene"] and out[i]["scene"] != "generic":
-            opts = [k for k in FALLBACK.get(out[i]["act"], FALLBACK["neutral"]) if k != out[i - 1]["scene"]]
-            if opts:
-                out[i]["scene"] = opts[i % len(opts)]
-    return out
+# ---------------- music ----------------
+def make_music(total, path="build/music.wav"):
+    """original soft ambient pad made with ffmpeg (no copyrighted music)"""
+    T = int(total) + 4
+    cmd = ["ffmpeg", "-y", "-loglevel", "error"]
+    for f in (110, 165, 220, 277):
+        cmd += ["-f", "lavfi", "-i", f"sine=frequency={f}:duration={T}"]
+    cmd += ["-filter_complex",
+            f"[0:a][1:a][2:a][3:a]amix=inputs=4:normalize=0,lowpass=f=700,tremolo=f=0.2:d=0.5,"
+            f"afade=t=in:d=4,afade=t=out:st={T - 5}:d=5[m]",
+            "-map", "[m]", "-ar", "48000", "-ac", "2", path]
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    return path if p.returncode == 0 else None
 
 
 # ---------------- main ----------------
@@ -336,7 +281,7 @@ def main():
             f.write(f"file '{os.path.abspath(w)}'\n")
     run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "build/wavs.txt", "-c", "copy", "build/voice.wav"])
 
-    scenes = get_scenes([(t, act) for _, _, t, act in segs])
+    scenes = mdirector.get_scenes([(t, act) for _, _, t, act in segs], ask, S, VERTICAL)
 
     # visuals (animated mannequin clips)
     S.SS = 1
@@ -356,13 +301,19 @@ def main():
         for c in clips:
             f.write(f"file '{os.path.abspath(c)}'\n")
     run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "build/list.txt", "-c", "copy", "build/joined.mp4"])
-    run(["ffmpeg", "-y", "-i", "build/joined.mp4", "-i", "build/voice.wav", "-map", "0:v", "-map", "1:a",
-         "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-shortest", "build/video.mp4"])
+    music = make_music(total)
+    if music:
+        run(["ffmpeg", "-y", "-i", "build/joined.mp4", "-i", "build/voice.wav", "-i", music, "-filter_complex",
+             "[1:a]aresample=48000[v];[2:a]aresample=48000,volume=0.14[m];[v][m]amix=inputs=2:duration=first:normalize=0[a]",
+             "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-shortest", "build/video.mp4"])
+    else:
+        run(["ffmpeg", "-y", "-i", "build/joined.mp4", "-i", "build/voice.wav", "-map", "0:v", "-map", "1:a",
+             "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-shortest", "build/video.mp4"])
 
     # thumbnail (stick man + bold text)
     tprops = plan.get("thumb_props") if isinstance(plan.get("thumb_props"), list) else []
-    tsc = sanitize({"act": "ruin", "pose": plan.get("thumb_pose"), "props": tprops[:2] or ["crown_crack"],
-                    "caption": plan.get("thumb_text") or topic}, topic, "ruin")
+    tsc = mdirector.sanitize({"act": "ruin", "pose": plan.get("thumb_pose"), "props": tprops[:2] or ["crown_crack"],
+                              "caption": plan.get("thumb_text") or topic}, topic, "ruin", S, VERTICAL)
     S.SS = 2
     S.render_scene(tsc, 1280, 720, path="build/thumbnail.jpg", style="thumb")
 
