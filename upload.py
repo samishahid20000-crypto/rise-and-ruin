@@ -8,7 +8,7 @@ SHORT = MODE == "short"
 ET = ZoneInfo("America/New_York")
 # (weekday 0=Mon .. 6=Sun, hour, minute) in US Eastern time
 SLOTS = {"long": [(2, 14, 0), (6, 10, 0)],
-         "short": [(0, 19, 0), (1, 19, 0), (3, 19, 0), (4, 19, 0), (5, 15, 0)]}
+         "short": [(0, 19, 0), (1, 19, 0), (2, 19, 0), (3, 19, 0), (4, 19, 0), (5, 15, 0), (6, 15, 0)]}
 VIDEO, THUMB, META, STATE = "build/video.mp4", "build/thumbnail.jpg", "build/metadata.txt", "output/schedule.json"
 
 
@@ -161,11 +161,10 @@ def main():
                               params={"videoId": vid, "uploadType": "media"},
                               headers={"Authorization": "Bearer " + token(), "Content-Type": "image/jpeg"},
                               data=open(THUMB, "rb").read())
-            print("thumbnail", t.status_code)
+            print("thumbnail", t.status_code, "" if t.status_code == 200 else t.text[:200])
         except Exception as e:
             print("thumbnail error", e)
 
 
 if __name__ == "__main__":
     main()
-        
