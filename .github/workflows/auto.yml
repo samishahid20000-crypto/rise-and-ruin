@@ -2,7 +2,7 @@ name: Auto produce and schedule
 on:
   schedule:
     - cron: "0 6 * * 1,4"
-    - cron: "0 8 * * 1-5"
+    - cron: "0 8 * * *"
   workflow_dispatch:
     inputs:
       mode:
